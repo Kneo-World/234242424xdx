@@ -9400,4 +9400,4 @@ end
 
 task.wait(2)
 createGUI()
-print("✅ MM2 Skin Changer (с обновлением инвентаря) загружен!")
+print("✅ MM2 Skin Changerrrr (с обновлением инвентаря) загружен!")
