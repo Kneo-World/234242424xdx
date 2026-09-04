@@ -9137,15 +9137,10 @@ local Items = v1
 -- Если вы не хотите вставлять огромную таблицу, можете загрузить её с pastebin
 -- (но это менее надёжно). Я предлагаю вставить её локально.
 
--- ============================================
---  ОСНОВНАЯ ЛОГИКА
--- ============================================
-
 local player = game:GetService("Players").LocalPlayer
-local replicatedStorage = game:GetService("ReplicatedStorage")
 local runService = game:GetService("RunService")
 
--- Функция поиска предмета по имени (без учёта регистра)
+-- Функция поиска предмета по имени
 local function findItemByName(name)
     local lower = string.lower(name)
     for _, item in pairs(Items) do
@@ -9166,39 +9161,132 @@ local function findItemById(id)
     return nil
 end
 
--- Применение скина к текущему оружию (ножи / пистолеты)
-local function applySkin(item)
+-- Функция для обновления иконки в инвентаре
+local function updateInventoryIcon(item, toolName)
     if not item or not item.ItemID then return end
-    local id = item.ItemID
-    local character = player.Character
-    if not character then return end
+    -- Определяем URL картинки скина
+    local imageUrl = item.Image
+    if not imageUrl or imageUrl == "" then
+        -- Если нет Image, пробуем через rbxassetid
+        imageUrl = "rbxassetid://" .. tostring(item.ItemID)
+    end
+    -- Если это http-ссылка, оставляем как есть, иначе используем rbxassetid
+    if not string.find(imageUrl, "^http") and not string.find(imageUrl, "^rbxassetid") then
+        imageUrl = "rbxassetid://" .. tostring(item.ItemID)
+    end
 
-    for _, tool in pairs(character:GetChildren()) do
-        if tool:IsA("Tool") and (tool:FindFirstChild("Handle") or tool:FindFirstChild("Gun")) then
-            -- Определяем основную часть
-            local part = tool:FindFirstChild("Handle") or tool:FindFirstChild("Gun") or tool:FindFirstChild("Model")
-            if part then
-                -- Удаляем старые меши
-                for _, child in pairs(part:GetChildren()) do
-                    if child:IsA("SpecialMesh") or child:IsA("MeshPart") or child:IsA("UnionOperation") then
-                        child:Destroy()
-                    end
-                end
-                -- Создаём новый меш с ID предмета
-                local newMesh = Instance.new("SpecialMesh")
-                newMesh.MeshId = "rbxassetid://" .. tostring(id)
-                newMesh.TextureId = "rbxassetid://" .. tostring(id)  -- иногда текстура отдельно
-                newMesh.Scale = Vector3.new(1,1,1)
-                newMesh.Parent = part
-
-                -- Если это пистолет, меняем и TextureId на тот же ID (часто работает)
-                if item.ItemType == "Gun" then
-                    -- можно добавить дополнительные настройки
-                end
-
-                print("Скин применён: " .. (item.ItemName or "Unknown") .. " (ID " .. id .. ")")
+    -- Ищем GUI инвентаря (обычно называется "Inventory" или "Backpack")
+    local gui = player.PlayerGui
+    local inventoryFrame = gui:FindFirstChild("Inventory") or gui:FindFirstChild("Backpack") or gui:FindFirstChild("Items")
+    if not inventoryFrame then
+        -- Если не нашли, попробуем поискать по всем дочерним элементам, содержащим "inventory" или "backpack"
+        for _, child in pairs(gui:GetChildren()) do
+            local nameLower = string.lower(child.Name)
+            if string.find(nameLower, "inventory") or string.find(nameLower, "backpack") or string.find(nameLower, "items") then
+                inventoryFrame = child
+                break
             end
         end
+    end
+
+    if not inventoryFrame then
+        print("⚠️ Не найден GUI инвентаря, иконка не будет обновлена.")
+        return
+    end
+
+    -- Ищем элемент, соответствующий текущему оружию (по имени)
+    for _, element in pairs(inventoryFrame:GetDescendants()) do
+        -- Проверяем, есть ли у элемента текст с названием оружия
+        if element:IsA("TextLabel") or element:IsA("TextButton") then
+            if element.Text and string.lower(element.Text):find(string.lower(toolName), 1, true) then
+                -- Нашли текстовую метку с именем оружия – ищем родительскую иконку (ImageLabel/ImageButton)
+                local parent = element.Parent
+                if parent then
+                    local icon = parent:FindFirstChildWhichIsA("ImageLabel") or parent:FindFirstChildWhichIsA("ImageButton")
+                    if icon then
+                        icon.Image = imageUrl
+                        print("✅ Иконка в инвентаре обновлена для " .. toolName)
+                        return
+                    end
+                end
+            end
+        end
+        -- Если сам элемент является Image и его имя содержит имя оружия (может быть)
+        if element:IsA("ImageLabel") or element:IsA("ImageButton") then
+            if string.lower(element.Name):find(string.lower(toolName), 1, true) then
+                element.Image = imageUrl
+                print("✅ Иконка в инвентаре обновлена (по имени элемента) для " .. toolName)
+                return
+            end
+        end
+    end
+    print("⚠️ Не найдена иконка для " .. toolName .. " в инвентаре.")
+end
+
+-- Применение скина к оружию в руках и обновление иконки в инвентаре
+local function applySkin(item)
+    if not item or not item.ItemID then
+        print("❌ Нет предмета или ID")
+        return
+    end
+    local id = item.ItemID
+    local character = player.Character
+    if not character then
+        print("❌ Персонаж не найден")
+        return
+    end
+
+    local applied = false
+    for _, tool in pairs(character:GetChildren()) do
+        if tool:IsA("Tool") then
+            -- Ищем части для замены меша
+            local parts = {}
+            local handle = tool:FindFirstChild("Handle")
+            local gun = tool:FindFirstChild("Gun")
+            local model = tool:FindFirstChild("Model")
+            if handle then table.insert(parts, handle) end
+            if gun then table.insert(parts, gun) end
+            if model then table.insert(parts, model) end
+            if #parts == 0 then
+                for _, child in pairs(tool:GetChildren()) do
+                    if child:IsA("BasePart") then
+                        table.insert(parts, child)
+                    end
+                end
+            end
+
+            for _, part in pairs(parts) do
+                if part then
+                    local mesh = part:FindFirstChildWhichIsA("SpecialMesh")
+                    if mesh then
+                        mesh.MeshId = "rbxassetid://" .. tostring(id)
+                        mesh.TextureId = "rbxassetid://" .. tostring(id)
+                        mesh.Scale = Vector3.new(1,1,1)
+                        applied = true
+                    end
+                    if part:IsA("MeshPart") then
+                        part.MeshId = "rbxassetid://" .. tostring(id)
+                        part.TextureID = "rbxassetid://" .. tostring(id)
+                        applied = true
+                    end
+                    if part:IsA("UnionOperation") then
+                        part.TextureID = "rbxassetid://" .. tostring(id)
+                        applied = true
+                    end
+                end
+            end
+
+            -- После применения скина к оружию обновляем иконку в инвентаре
+            if applied then
+                -- Передаём имя оружия (tool.Name)
+                updateInventoryIcon(item, tool.Name)
+                print("🎯 Скин " .. (item.ItemName or "Unknown") .. " (ID " .. id .. ") применён к " .. tool.Name)
+            end
+        end
+    end
+
+    if not applied then
+        print("❌ Не удалось применить скин. Убедитесь, что у вас в руках оружие.")
     end
 end
 
@@ -9225,7 +9313,7 @@ player.Chatted:Connect(function(msg)
     end
 end)
 
--- Создаём GUI для удобного выбора
+-- Создание GUI для выбора скина (остаётся без изменений)
 local function createGUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MM2SkinChanger"
@@ -9241,7 +9329,6 @@ local function createGUI()
     frame.Draggable = true
     frame.Parent = screenGui
 
-    -- Заголовок
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 30)
     title.BackgroundTransparency = 1
@@ -9251,7 +9338,6 @@ local function createGUI()
     title.Font = Enum.Font.GothamBold
     title.Parent = frame
 
-    -- Поле поиска
     local searchBox = Instance.new("TextBox")
     searchBox.Size = UDim2.new(1, -20, 0, 30)
     searchBox.Position = UDim2.new(0, 10, 0, 35)
@@ -9263,7 +9349,6 @@ local function createGUI()
     searchBox.ClearTextOnFocus = false
     searchBox.Parent = frame
 
-    -- Список результатов (скроллинг)
     local scroll = Instance.new("ScrollingFrame")
     scroll.Size = UDim2.new(1, -20, 1, -80)
     scroll.Position = UDim2.new(0, 10, 0, 70)
@@ -9277,7 +9362,6 @@ local function createGUI()
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Padding = UDim.new(0, 4)
 
-    -- Функция обновления списка
     local function updateList(filter)
         for _, child in pairs(scroll:GetChildren()) do
             if child:IsA("TextButton") then child:Destroy() end
@@ -9298,11 +9382,11 @@ local function createGUI()
 
                 btn.MouseButton1Click:Connect(function()
                     applySkin(item)
-                    frame.Visible = false  -- закрыть GUI после выбора (опционально)
+                    frame.Visible = false
                 end)
 
                 count = count + 1
-                if count > 100 then break end  -- ограничим для производительности
+                if count > 100 then break end
             end
         end
         scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
@@ -9312,7 +9396,6 @@ local function createGUI()
         updateList(searchBox.Text)
     end)
 
-    -- Кнопка закрытия
     local closeBtn = Instance.new("ImageButton")
     closeBtn.Size = UDim2.new(0, 30, 0, 30)
     closeBtn.Position = UDim2.new(1, -35, 0, 5)
@@ -9324,11 +9407,9 @@ local function createGUI()
         screenGui:Destroy()
     end)
 
-    -- Инициализация списка
     updateList("")
 end
 
--- Запуск GUI через некоторое время (чтобы игра прогрузилась)
 task.wait(2)
 createGUI()
-print("✅ MM2 Skin Changer загружен! Используй /skin <название> или GUI.")
+print("✅ MM2 Skin Changer (с обновлением инвентаря) загружен!")
