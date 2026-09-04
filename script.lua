@@ -9137,8 +9137,11 @@ local Items = v1
 -- Если вы не хотите вставлять огромную таблицу, можете загрузить её с pastebin
 -- (но это менее надёжно). Я предлагаю вставить её локально.
 
+-- ============================================
+--  ОСНОВНАЯ ЛОГИКА
+-- ============================================
+
 local player = game:GetService("Players").LocalPlayer
-local runService = game:GetService("RunService")
 
 -- Функция поиска предмета по имени
 local function findItemByName(name)
@@ -9161,69 +9164,55 @@ local function findItemById(id)
     return nil
 end
 
--- Функция для обновления иконки в инвентаре
+-- Функция обновления иконки в инвентаре (с учётом структуры BackpackUI)
 local function updateInventoryIcon(item, toolName)
     if not item or not item.ItemID then return end
-    -- Определяем URL картинки скина
     local imageUrl = item.Image
     if not imageUrl or imageUrl == "" then
-        -- Если нет Image, пробуем через rbxassetid
         imageUrl = "rbxassetid://" .. tostring(item.ItemID)
     end
-    -- Если это http-ссылка, оставляем как есть, иначе используем rbxassetid
     if not string.find(imageUrl, "^http") and not string.find(imageUrl, "^rbxassetid") then
         imageUrl = "rbxassetid://" .. tostring(item.ItemID)
     end
 
-    -- Ищем GUI инвентаря (обычно называется "Inventory" или "Backpack")
     local gui = player.PlayerGui
-    local inventoryFrame = gui:FindFirstChild("Inventory") or gui:FindFirstChild("Backpack") or gui:FindFirstChild("Items")
-    if not inventoryFrame then
-        -- Если не нашли, попробуем поискать по всем дочерним элементам, содержащим "inventory" или "backpack"
-        for _, child in pairs(gui:GetChildren()) do
-            local nameLower = string.lower(child.Name)
-            if string.find(nameLower, "inventory") or string.find(nameLower, "backpack") or string.find(nameLower, "items") then
-                inventoryFrame = child
-                break
-            end
+    local backpackUI = gui:FindFirstChild("BackpackUI")
+    if not backpackUI then
+        -- иногда панель называется иначе, попробуем поискать
+        backpackUI = gui:FindFirstChild("Backpack") or gui:FindFirstChild("Inventory")
+        if not backpackUI then
+            print("⚠️ Панель инвентаря не найдена")
+            return
         end
     end
-
-    if not inventoryFrame then
-        print("⚠️ Не найден GUI инвентаря, иконка не будет обновлена.")
-        return
+    local backpackFrame = backpackUI:FindFirstChild("BackpackFrame")
+    if not backpackFrame then
+        -- возможно, фрейм называется по-другому
+        backpackFrame = backpackUI:FindFirstChild("Frame") or backpackUI
     end
 
-    -- Ищем элемент, соответствующий текущему оружию (по имени)
-    for _, element in pairs(inventoryFrame:GetDescendants()) do
-        -- Проверяем, есть ли у элемента текст с названием оружия
-        if element:IsA("TextLabel") or element:IsA("TextButton") then
-            if element.Text and string.lower(element.Text):find(string.lower(toolName), 1, true) then
-                -- Нашли текстовую метку с именем оружия – ищем родительскую иконку (ImageLabel/ImageButton)
-                local parent = element.Parent
-                if parent then
-                    local icon = parent:FindFirstChildWhichIsA("ImageLabel") or parent:FindFirstChildWhichIsA("ImageButton")
-                    if icon then
-                        icon.Image = imageUrl
-                        print("✅ Иконка в инвентаре обновлена для " .. toolName)
-                        return
-                    end
+    -- Ищем все дочерние элементы, которые являются клонами BackpackItem
+    for _, child in pairs(backpackFrame:GetChildren()) do
+        if child:IsA("Frame") and child:FindFirstChild("Container") then
+            local container = child.Container
+            local nameLabel = container:FindFirstChild("NameLabel")
+            local toolIcon = container:FindFirstChild("ToolIcon")
+            if nameLabel and toolIcon and nameLabel:IsA("TextLabel") and toolIcon:IsA("ImageLabel") then
+                -- Сравниваем имя (может быть пустым, если есть текстура, но мы сравним с toolName)
+                if nameLabel.Text and string.lower(nameLabel.Text) == string.lower(toolName) then
+                    toolIcon.Image = imageUrl
+                    print("✅ Иконка в инвентаре обновлена для " .. toolName)
+                    return
                 end
             end
         end
-        -- Если сам элемент является Image и его имя содержит имя оружия (может быть)
-        if element:IsA("ImageLabel") or element:IsA("ImageButton") then
-            if string.lower(element.Name):find(string.lower(toolName), 1, true) then
-                element.Image = imageUrl
-                print("✅ Иконка в инвентаре обновлена (по имени элемента) для " .. toolName)
-                return
-            end
-        end
     end
-    print("⚠️ Не найдена иконка для " .. toolName .. " в инвентаре.")
+    -- Если не нашли по имени, попробуем найти по атрибуту или по родительскому инструменту
+    -- (можно также искать по TextureId, но это сложнее)
+    print("⚠️ Не найден элемент инвентаря для " .. toolName)
 end
 
--- Применение скина к оружию в руках и обновление иконки в инвентаре
+-- Применение скина к оружию в руках и обновление иконки
 local function applySkin(item)
     if not item or not item.ItemID then
         print("❌ Нет предмета или ID")
@@ -9276,9 +9265,8 @@ local function applySkin(item)
                 end
             end
 
-            -- После применения скина к оружию обновляем иконку в инвентаре
             if applied then
-                -- Передаём имя оружия (tool.Name)
+                -- Обновляем иконку в инвентаре для этого оружия
                 updateInventoryIcon(item, tool.Name)
                 print("🎯 Скин " .. (item.ItemName or "Unknown") .. " (ID " .. id .. ") применён к " .. tool.Name)
             end
@@ -9313,7 +9301,7 @@ player.Chatted:Connect(function(msg)
     end
 end)
 
--- Создание GUI для выбора скина (остаётся без изменений)
+-- GUI для выбора скина (без изменений)
 local function createGUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "MM2SkinChanger"
