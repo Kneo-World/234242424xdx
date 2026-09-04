@@ -1,166 +1,106 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
-print("==================================================")
-print("=== [SUPER DETAILED SKIN CHANGER LOGS] ACTIVE ===")
-print("==================================================")
+print("=== [FORCE CLONE SKIN CHANGER] START ===")
 
-local SKINS = {
-    Knife = {
-        Name = "Icebreaker",
-        MeshId = "rbxassetid://4738598711",
-        TextureId = "rbxassetid://4738598920"
-    },
-    Gun = {
-        Name = "Harvester",
-        MeshId = "rbxassetid://7800847534",
-        TextureId = "rbxassetid://7800847683"
-    }
-}
-
-local processedItems = {}
-
-local function logAndApplyMesh(parentObj, skinData, category)
-    if not parentObj or not skinData then return end
-
-    local targetPart = parentObj:IsA("BasePart") and parentObj or parentObj:FindFirstChild("Handle") or parentObj:FindFirstChildWhichIsA("BasePart", true)
-    
-    if not targetPart then
-        print(string.format("[LOG-WARN] [%s] Не найден Part/Handle у объекта: %s", category, parentObj:GetFullName()))
-        return
+-- Ищем оригинальные подгруженные модели в памяти самой игры MM2
+local function getGameWeaponModel(weaponName)
+    for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+        if v.Name:lower() == weaponName:lower() and (v:IsA("Model") or v:IsA("BasePart")) then
+            return v
+        end
     end
+    return nil
+end
 
-    local meshObj = targetPart:FindFirstChildOfClass("SpecialMesh") or targetPart:FindFirstChildWhichIsA("DataModelMesh")
+local function attachFakeSkin(toolObj, skinName)
+    if not toolObj then return end
+    local handle = toolObj:FindFirstChild("Handle") or toolObj:FindFirstChildWhichIsA("BasePart", true)
+    if not handle then return end
 
-    -- Логируем событие при первичном обнаружении предмета
-    if not processedItems[parentObj] then
-        processedItems[parentObj] = true
-        print(string.format("\n[TARGET FOUND] Найдено оружие категории '%s'!", category))
-        print(" -> Имя объекта:", parentObj.Name)
-        print(" -> Путь:", parentObj:GetFullName())
-        print(" -> Целевой Part:", targetPart.Name, "(" .. targetPart.ClassName .. ")")
-        
-        if meshObj then
-            print(" -> Найден Mesh-объект:", meshObj.Name, "(" .. meshObj.ClassName .. ")")
-            print("    [Было] MeshId:", meshObj.MeshId)
-            print("    [Было] TextureId:", meshObj.TextureId)
-        else
-            print(" -> Внутренний Mesh не найден, создаем новый SpecialMesh...")
+    -- Если уже прикрепили кастомный скин — пропускаем
+    if handle:FindFirstChild("CustomVisualSkin") then return end
+
+    -- Делаем дефолтный нож/пест невидимым
+    handle.Transparent = 1
+    for _, child in ipairs(handle:GetChildren()) do
+        if child:IsA("SpecialMesh") or child:IsA("Decal") or child:IsA("Texture") then
+            child.Parent = nil -- Удаляем старый меш
         end
     end
 
-    -- Применяем текстуру к Tool
-    if parentObj:IsA("Tool") and parentObj.TextureId ~= skinData.TextureId then
-        parentObj.TextureId = skinData.TextureId
-        print(" -> [Tool Icon Updated]:", skinData.TextureId)
-    end
+    -- Ищем модель скина в репозитории игры
+    local sourceModel = getGameWeaponModel(skinName)
+    if sourceModel then
+        local clone = sourceModel:Clone()
+        clone.Name = "CustomVisualSkin"
 
-    -- Замена на MeshPart
-    if targetPart:IsA("MeshPart") then
-        if targetPart.MeshId ~= skinData.MeshId then
-            targetPart.MeshId = skinData.MeshId
-            if skinData.TextureId then targetPart.TextureID = skinData.TextureId end
-            print(" [✓ SUCCESS] Заменен MeshPart на", skinData.Name)
-        end
-    end
-
-    -- Замена на SpecialMesh
-    if meshObj then
-        if meshObj.MeshId ~= skinData.MeshId then
-            meshObj.MeshId = skinData.MeshId
-            if skinData.TextureId then meshObj.TextureId = skinData.TextureId end
-            meshObj.Scale = Vector3.new(1, 1, 1)
-            print(" [✓ SUCCESS] Заменен SpecialMesh на", skinData.Name)
+        if clone:IsA("Model") then
+            local primary = clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart", true)
+            if primary then
+                for _, part in ipairs(clone:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                        part.Massless = true
+                    end
+                end
+                
+                -- Привариваем к Handle
+                local weld = Instance.new("WeldConstraint")
+                weld.Part0 = handle
+                weld.Part1 = primary
+                weld.Parent = primary
+                
+                clone:Parent(handle)
+                print("[✓ SUCCESS] Вшита модель:", skinName, "в", toolObj.Name)
+            end
+        elseif clone:IsA("BasePart") then
+            clone.CanCollide = false
+            clone.Massless = true
+            
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = handle
+            weld.Part1 = clone
+            weld.Parent = clone
+            
+            clone.Parent = handle
+            print("[✓ SUCCESS] Вшит Part:", skinName, "в", toolObj.Name)
         end
     else
-        local newMesh = Instance.new("SpecialMesh")
-        newMesh.Name = "Mesh"
-        newMesh.MeshId = skinData.MeshId
-        if skinData.TextureId then newMesh.TextureId = skinData.TextureId end
-        newMesh.Parent = targetPart
-        print(" [✓ SUCCESS] Создан и прикреплен новый SpecialMesh:", skinData.Name)
+        print("[WARN] Модель", skinName, "не найдена в ReplicatedStorage игры!")
     end
 end
 
-local function isMyDisplay(displayObj)
-    local char = LocalPlayer.Character
-    if not char then return false end
-
-    for _, descendant in ipairs(displayObj:GetDescendants()) do
-        if descendant:IsA("RigidConstraint") or descendant:IsA("Weld") or descendant:IsA("WeldConstraint") then
-            local p0 = descendant:IsA("RigidConstraint") and descendant.Attachment0 or descendant.Part0
-            local p1 = descendant:IsA("RigidConstraint") and descendant.Attachment1 or descendant.Part1
-            if (p0 and p0:IsDescendantOf(char)) or (p1 and p1:IsDescendantOf(char)) then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local function runScan()
+-- Проверка рук и Backpack
+local function scanAndApply()
     local char = LocalPlayer.Character
     if not char then return end
 
-    -- 1. Инвентарь и руки
-    local containers = {
-        ["Backpack"] = LocalPlayer:FindFirstChild("Backpack"),
-        ["Character (Руки)"] = char
-    }
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local targets = {backpack, char}
 
-    for name, container in pairs(containers) do
+    for _, container in ipairs(targets) do
         if container then
             for _, item in ipairs(container:GetChildren()) do
                 if item:IsA("Tool") then
-                    local itemName = item.Name:lower()
-                    if itemName:find("knife") or item:FindFirstChild("Knife") then
-                        logAndApplyMesh(item, SKINS.Knife, name .. " -> Knife")
-                    elseif itemName:find("gun") or item:FindFirstChild("Gun") then
-                        logAndApplyMesh(item, SKINS.Gun, name .. " -> Gun")
+                    local name = item.Name:lower()
+                    if name:find("knife") or item:FindFirstChild("Knife") then
+                        attachFakeSkin(item, "Icebreaker")
+                    elseif name:find("gun") or item:FindFirstChild("Gun") then
+                        attachFakeSkin(item, "Harvester")
                     end
                 end
             end
         end
     end
-
-    -- 2. Спина/Пояс
-    local weaponDisplays = Workspace:FindFirstChild("WeaponDisplays")
-    if weaponDisplays then
-        for _, display in ipairs(weaponDisplays:GetChildren()) do
-            if isMyDisplay(display) then
-                local dispName = display.Name:lower()
-                if dispName:find("knife") then
-                    logAndApplyMesh(display, SKINS.Knife, "WeaponDisplays -> Knife")
-                elseif dispName:find("gun") then
-                    logAndApplyMesh(display, SKINS.Gun, "WeaponDisplays -> Gun")
-                end
-            end
-        end
-    end
 end
 
--- Отслеживание экипировки в реальном времени
-local function setupListeners(char)
-    if not char then return end
-    print("[EVENT LISTENER] Подключен к персонажу:", char.Name)
-    
-    char.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then
-            print("\n[EVENT] Персонаж взял в руки предмет:", child.Name)
-            task.wait(0.05)
-            runScan()
-        end
-    end)
-end
-
-if LocalPlayer.Character then setupListeners(LocalPlayer.Character) end
-LocalPlayer.CharacterAdded:Connect(setupListeners)
-
--- Постоянная фоновая проверка
+-- Запуск цикла проверки
 task.spawn(function()
-    while task.wait(0.2) do
-        pcall(runScan)
+    while task.wait(0.3) do
+        pcall(scanAndApply)
     end
 end)
