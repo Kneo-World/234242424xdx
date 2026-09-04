@@ -1,11 +1,16 @@
 -- ============================================
---  MM2 VISUAL SKIN CHANGER  (Delta Executor)
---  Использует данные из предоставленного дампа
+--  ДОБАВЛЯЕМ ВСЕ СКИНЫ ИЗ ТАБЛИЦЫ В ИНВЕНТАРЬ
+--  (локально, только для тебя)
 -- ============================================
 
--- ВСТАВЬТЕ СЮДА ВСЮ ТАБЛИЦУ ИЗ ФАЙЛА Place_142823291_Script_1788505805.txt
--- (переменная v1)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProfileData = require(ReplicatedStorage.Modules.ProfileData)
+local InventoryModule = require(ReplicatedStorage.Modules.InventoryModule)
 
+-- ВСТАВЬТЕ СЮДА ВАШУ БОЛЬШУЮ ТАБЛИЦУ v1 (из файла Place_142823291_Script_1788505805.txt)
+-- Script Path: game:GetService("ReplicatedStorage").Database.Sync.Item
+-- Took 0.18s to decompile.
+-- Executor: Delta (1.1.735.1138)
 
 local v1 = {
     ["Gift"] = {
@@ -9131,273 +9136,52 @@ v1.TreatChroma = {
     ["Chroma"] = true
 }
 
-local Items = v1
 
+-- Счётчик добавленных скинов
+local addedCount = 0
 
--- Если вы не хотите вставлять огромную таблицу, можете загрузить её с pastebin
--- (но это менее надёжно). Я предлагаю вставить её локально.
-
--- ============================================
---  ОСНОВНАЯ ЛОГИКА
--- ============================================
-
-local player = game:GetService("Players").LocalPlayer
-
--- Функция поиска предмета по имени
-local function findItemByName(name)
-    local lower = string.lower(name)
-    for _, item in pairs(Items) do
-        if item.ItemName and string.lower(item.ItemName):find(lower, 1, true) then
-            return item
+-- Проходим по всем элементам таблицы
+for key, item in pairs(v1) do
+    -- Проверяем, что это оружие (ножи или пистолеты) и у него есть ItemID
+    if item.ItemID and (item.ItemType == "Knife" or item.ItemType == "Gun") then
+        local skinName = item.ItemName
+        if skinName and skinName ~= "" then
+            -- Добавляем в локальный профиль (если уже есть, увеличиваем количество)
+            ProfileData.Weapons.Owned[skinName] = (ProfileData.Weapons.Owned[skinName] or 0) + 1
+            addedCount = addedCount + 1
         end
-    end
-    return nil
-end
-
--- Функция поиска по ID
-local function findItemById(id)
-    for _, item in pairs(Items) do
-        if item.ItemID == id then
-            return item
-        end
-    end
-    return nil
-end
-
--- Функция обновления иконки в инвентаре (с учётом структуры BackpackUI)
-local function updateInventoryIcon(item, toolName)
-    if not item or not item.ItemID then return end
-    local imageUrl = item.Image
-    if not imageUrl or imageUrl == "" then
-        imageUrl = "rbxassetid://" .. tostring(item.ItemID)
-    end
-    if not string.find(imageUrl, "^http") and not string.find(imageUrl, "^rbxassetid") then
-        imageUrl = "rbxassetid://" .. tostring(item.ItemID)
-    end
-
-    local gui = player.PlayerGui
-    local backpackUI = gui:FindFirstChild("BackpackUI")
-    if not backpackUI then
-        -- иногда панель называется иначе, попробуем поискать
-        backpackUI = gui:FindFirstChild("Backpack") or gui:FindFirstChild("Inventory")
-        if not backpackUI then
-            print("⚠️ Панель инвентаря не найдена")
-            return
-        end
-    end
-    local backpackFrame = backpackUI:FindFirstChild("BackpackFrame")
-    if not backpackFrame then
-        -- возможно, фрейм называется по-другому
-        backpackFrame = backpackUI:FindFirstChild("Frame") or backpackUI
-    end
-
-    -- Ищем все дочерние элементы, которые являются клонами BackpackItem
-    for _, child in pairs(backpackFrame:GetChildren()) do
-        if child:IsA("Frame") and child:FindFirstChild("Container") then
-            local container = child.Container
-            local nameLabel = container:FindFirstChild("NameLabel")
-            local toolIcon = container:FindFirstChild("ToolIcon")
-            if nameLabel and toolIcon and nameLabel:IsA("TextLabel") and toolIcon:IsA("ImageLabel") then
-                -- Сравниваем имя (может быть пустым, если есть текстура, но мы сравним с toolName)
-                if nameLabel.Text and string.lower(nameLabel.Text) == string.lower(toolName) then
-                    toolIcon.Image = imageUrl
-                    print("✅ Иконка в инвентаре обновлена для " .. toolName)
-                    return
-                end
-            end
-        end
-    end
-    -- Если не нашли по имени, попробуем найти по атрибуту или по родительскому инструменту
-    -- (можно также искать по TextureId, но это сложнее)
-    print("⚠️ Не найден элемент инвентаря для " .. toolName)
-end
-
--- Применение скина к оружию в руках и обновление иконки
-local function applySkin(item)
-    if not item or not item.ItemID then
-        print("❌ Нет предмета или ID")
-        return
-    end
-    local id = item.ItemID
-    local character = player.Character
-    if not character then
-        print("❌ Персонаж не найден")
-        return
-    end
-
-    local applied = false
-    for _, tool in pairs(character:GetChildren()) do
-        if tool:IsA("Tool") then
-            -- Ищем части для замены меша
-            local parts = {}
-            local handle = tool:FindFirstChild("Handle")
-            local gun = tool:FindFirstChild("Gun")
-            local model = tool:FindFirstChild("Model")
-            if handle then table.insert(parts, handle) end
-            if gun then table.insert(parts, gun) end
-            if model then table.insert(parts, model) end
-            if #parts == 0 then
-                for _, child in pairs(tool:GetChildren()) do
-                    if child:IsA("BasePart") then
-                        table.insert(parts, child)
-                    end
-                end
-            end
-
-            for _, part in pairs(parts) do
-                if part then
-                    local mesh = part:FindFirstChildWhichIsA("SpecialMesh")
-                    if mesh then
-                        mesh.MeshId = "rbxassetid://" .. tostring(id)
-                        mesh.TextureId = "rbxassetid://" .. tostring(id)
-                        mesh.Scale = Vector3.new(1,1,1)
-                        applied = true
-                    end
-                    if part:IsA("MeshPart") then
-                        part.MeshId = "rbxassetid://" .. tostring(id)
-                        part.TextureID = "rbxassetid://" .. tostring(id)
-                        applied = true
-                    end
-                    if part:IsA("UnionOperation") then
-                        part.TextureID = "rbxassetid://" .. tostring(id)
-                        applied = true
-                    end
-                end
-            end
-
-            if applied then
-                -- Обновляем иконку в инвентаре для этого оружия
-                updateInventoryIcon(item, tool.Name)
-                print("🎯 Скин " .. (item.ItemName or "Unknown") .. " (ID " .. id .. ") применён к " .. tool.Name)
-            end
-        end
-    end
-
-    if not applied then
-        print("❌ Не удалось применить скин. Убедитесь, что у вас в руках оружие.")
     end
 end
 
--- Обработка команд в чате
-player.Chatted:Connect(function(msg)
-    if msg:sub(1,6) == "/skin " then
-        local name = msg:sub(7)
-        local item = findItemByName(name)
-        if item then
-            applySkin(item)
-        else
-            print("❌ Скин с таким названием не найден.")
-        end
-    elseif msg:sub(1,8) == "/skinid " then
-        local id = tonumber(msg:sub(9))
-        if id then
-            local item = findItemById(id)
-            if item then
-                applySkin(item)
-            else
-                print("❌ Предмет с ID " .. id .. " не найден.")
-            end
-        end
-    end
-end)
+print("✅ Добавлено скинов в инвентарь: " .. addedCount)
 
--- GUI для выбора скина (без изменений)
-local function createGUI()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "MM2SkinChanger"
-    screenGui.Parent = player:WaitForChild("PlayerGui")
-
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 400, 0, 500)
-    frame.Position = UDim2.new(0.5, -200, 0.5, -250)
-    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    frame.BackgroundTransparency = 0.2
-    frame.BorderSizePixel = 0
-    frame.Active = true
-    frame.Draggable = true
-    frame.Parent = screenGui
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 30)
-    title.BackgroundTransparency = 1
-    title.Text = "🎯 MM2 Skin Changer"
-    title.TextColor3 = Color3.fromRGB(255,255,255)
-    title.TextScaled = true
-    title.Font = Enum.Font.GothamBold
-    title.Parent = frame
-
-    local searchBox = Instance.new("TextBox")
-    searchBox.Size = UDim2.new(1, -20, 0, 30)
-    searchBox.Position = UDim2.new(0, 10, 0, 35)
-    searchBox.PlaceholderText = "Поиск скина..."
-    searchBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    searchBox.TextColor3 = Color3.fromRGB(255,255,255)
-    searchBox.Font = Enum.Font.Gotham
-    searchBox.TextSize = 16
-    searchBox.ClearTextOnFocus = false
-    searchBox.Parent = frame
-
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.Size = UDim2.new(1, -20, 1, -80)
-    scroll.Position = UDim2.new(0, 10, 0, 70)
-    scroll.BackgroundTransparency = 1
-    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroll.ScrollBarThickness = 8
-    scroll.Parent = frame
-
-    local layout = Instance.new("UIListLayout")
-    layout.Parent = scroll
-    layout.SortOrder = Enum.SortOrder.LayoutOrder
-    layout.Padding = UDim.new(0, 4)
-
-    local function updateList(filter)
-        for _, child in pairs(scroll:GetChildren()) do
-            if child:IsA("TextButton") then child:Destroy() end
-        end
-
-        local count = 0
-        for _, item in pairs(Items) do
-            if item.ItemName and (not filter or string.lower(item.ItemName):find(string.lower(filter), 1, true)) then
-                local btn = Instance.new("TextButton")
-                btn.Size = UDim2.new(1, 0, 0, 30)
-                btn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-                btn.Text = item.ItemName .. " (" .. (item.Rarity or "?") .. ")"
-                btn.TextColor3 = Color3.fromRGB(255,255,255)
-                btn.Font = Enum.Font.Gotham
-                btn.TextSize = 14
-                btn.TextXAlignment = Enum.TextXAlignment.Left
-                btn.Parent = scroll
-
-                btn.MouseButton1Click:Connect(function()
-                    applySkin(item)
-                    frame.Visible = false
-                end)
-
-                count = count + 1
-                if count > 100 then break end
-            end
-        end
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
-    end
-
-    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        updateList(searchBox.Text)
-    end)
-
-    local closeBtn = Instance.new("ImageButton")
-    closeBtn.Size = UDim2.new(0, 30, 0, 30)
-    closeBtn.Position = UDim2.new(1, -35, 0, 5)
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Image = "rbxassetid://12906653869"
-    closeBtn.Parent = frame
-
-    closeBtn.MouseButton1Click:Connect(function()
-        screenGui:Destroy()
-    end)
-
-    updateList("")
+-- Перерисовываем GUI инвентаря (чтобы скины появились)
+if InventoryModule.MyInventory then
+    InventoryModule.MyInventory = InventoryModule.GenerateInventory(
+        InventoryModule.GUI.MyInventory, 
+        ProfileData, 
+        "Main"
+    )
+    InventoryModule.SortInventory(InventoryModule.MyInventory)
+    InventoryModule.ConnectEquipButtons()
+    print("✅ GUI инвентаря обновлён!")
+else
+    print("⚠️ InventoryModule.MyInventory не найден, попробуй открыть и закрыть инвентарь вручную.")
 end
 
-task.wait(2)
-createGUI()
-print("✅ MM2 Skin Changerrrr (с обновлением инвентаря) загружен!")
+-- Дополнительно: если есть другие окна инвентаря (например, для торговли), можно обновить их
+if InventoryModule.GUI then
+    for _, guiObj in pairs(InventoryModule.GUI:GetChildren()) do
+        if guiObj:IsA("Frame") and guiObj:FindFirstChild("ScrollingFrame") then
+            -- Попытка обновить все панели
+            local success, err = pcall(function()
+                InventoryModule.GenerateInventory(guiObj, ProfileData, "Main")
+            end)
+            if success then
+                print("✅ Обновлена дополнительная панель: " .. guiObj.Name)
+            end
+        end
+    end
+end
+
+print("🎯 Теперь все скины из твоей таблицы доступны в инвентаре!")
