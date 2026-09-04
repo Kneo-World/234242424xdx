@@ -1,13 +1,16 @@
 -- ============================================
---  ДОБАВЛЯЕМ ВСЕ СКИНЫ ИЗ ТАБЛИЦЫ В ИНВЕНТАРЬ
---  (локально, только для тебя)
+--  ДОБАВЛЯЕМ ВСЕ СКИНЫ ИЗ БОЛЬШОЙ ТАБЛИЦЫ
+--  В ЛОКАЛЬНЫЙ ИНВЕНТАРЬ MM2
 -- ============================================
 
+-- 1. Подключаем нужные модули
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ProfileData = require(ReplicatedStorage.Modules.ProfileData)
+local ProfileData = require(ReplicatedStorage.Modules.ProfileData)  -- это v_u_3 из твоего скрипта
 local InventoryModule = require(ReplicatedStorage.Modules.InventoryModule)
+local InventoryService = require(ReplicatedStorage.ClientServices.InventoryService)
+local ItemService = require(ReplicatedStorage.ClientServices.ItemService)
 
--- ВСТАВЬТЕ СЮДА ВАШУ БОЛЬШУЮ ТАБЛИЦУ v1 (из файла Place_142823291_Script_1788505805.txt)
+-- 2. ВСТАВЬ СЮДА СВОЮ БОЛЬШУЮ ТАБЛИЦУ v1 (полностью)
 -- Script Path: game:GetService("ReplicatedStorage").Database.Sync.Item
 -- Took 0.18s to decompile.
 -- Executor: Delta (1.1.735.1138)
@@ -9136,13 +9139,12 @@ v1.TreatChroma = {
     ["Chroma"] = true
 }
 
-
--- Счётчик добавленных скинов
+-- 3. Счётчик добавленных скинов
 local addedCount = 0
 
--- Проходим по всем элементам таблицы
+-- 4. Проходим по всей таблице
 for key, item in pairs(v1) do
-    -- Проверяем, что это оружие (ножи или пистолеты) и у него есть ItemID
+    -- Добавляем только ножи и пистолеты, у которых есть ItemID и ItemName
     if item.ItemID and (item.ItemType == "Knife" or item.ItemType == "Gun") then
         local skinName = item.ItemName
         if skinName and skinName ~= "" then
@@ -9155,33 +9157,40 @@ end
 
 print("✅ Добавлено скинов в инвентарь: " .. addedCount)
 
--- Перерисовываем GUI инвентаря (чтобы скины появились)
+-- 5. Перерисовываем GUI инвентаря через InventoryModule
 if InventoryModule.MyInventory then
+    -- Пересоздаём инвентарь (главное окно)
     InventoryModule.MyInventory = InventoryModule.GenerateInventory(
-        InventoryModule.GUI.MyInventory, 
-        ProfileData, 
-        "Main"
+        InventoryModule.GUI.MyInventory,   -- панель
+        ProfileData,                       -- данные
+        "Main"                             -- тип
     )
     InventoryModule.SortInventory(InventoryModule.MyInventory)
     InventoryModule.ConnectEquipButtons()
-    print("✅ GUI инвентаря обновлён!")
+    print("✅ Главный инвентарь обновлён!")
 else
-    print("⚠️ InventoryModule.MyInventory не найден, попробуй открыть и закрыть инвентарь вручную.")
+    print("⚠️ InventoryModule.MyInventory не найден. Возможно, инвентарь ещё не открыт.")
 end
 
--- Дополнительно: если есть другие окна инвентаря (например, для торговли), можно обновить их
+-- 6. Дополнительно: обновляем все другие панели, которые могут существовать (например, вкладки)
 if InventoryModule.GUI then
     for _, guiObj in pairs(InventoryModule.GUI:GetChildren()) do
         if guiObj:IsA("Frame") and guiObj:FindFirstChild("ScrollingFrame") then
-            -- Попытка обновить все панели
             local success, err = pcall(function()
                 InventoryModule.GenerateInventory(guiObj, ProfileData, "Main")
             end)
             if success then
-                print("✅ Обновлена дополнительная панель: " .. guiObj.Name)
+                print("✅ Обновлена панель: " .. guiObj.Name)
             end
         end
     end
 end
 
+-- 7. Также можно обновить через InventoryService (для надёжности)
+if InventoryService and InventoryService.GenerateInventoryInfo then
+    -- Можно пересоздать данные инвентаря, но обычно InventoryModule достаточно
+    print("🔄 InventoryService также доступен для обновления.")
+end
+
 print("🎯 Теперь все скины из твоей таблицы доступны в инвентаре!")
+print("💡 Открой инвентарь (E или I) и наслаждайся!")
