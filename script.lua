@@ -1,96 +1,64 @@
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 
-print("=== [FORCE CLONE SKIN CHANGER] START ===")
+print("==================================================")
+print("=== [DEEP STORAGE SCANNER & REAL MESH FINDER] ===")
+print("==================================================")
 
--- Ищем оригинальные подгруженные модели в памяти самой игры MM2
-local function getGameWeaponModel(weaponName)
-    for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-        if v.Name:lower() == weaponName:lower() and (v:IsA("Model") or v:IsA("BasePart")) then
-            return v
+-- 1. СКАНИРУЕМ ВСЕ МОДЕЛИ И МЕШИ В REPLICATEDSTORAGE
+print("\n>>> [1] Сканирование ReplicatedStorage на наличие оружия...")
+local foundModels = {}
+
+for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+    local nameLower = obj.Name:lower()
+    if nameLower:find("icebreaker") or nameLower:find("harvester") or nameLower:find("knife") or nameLower:find("gun") then
+        if obj:IsA("Model") or obj:IsA("MeshPart") or obj:IsA("Tool") then
+            table.insert(foundModels, {
+                Name = obj.Name,
+                Class = obj.ClassName,
+                Path = obj:GetFullName()
+            })
         end
-    end
-    return nil
-end
-
-local function attachFakeSkin(toolObj, skinName)
-    if not toolObj then return end
-    local handle = toolObj:FindFirstChild("Handle") or toolObj:FindFirstChildWhichIsA("BasePart", true)
-    if not handle then return end
-
-    -- Если уже прикрепили кастомный скин — пропускаем
-    if handle:FindFirstChild("CustomVisualSkin") then return end
-
-    -- Делаем дефолтный нож/пест невидимым
-    handle.Transparent = 1
-    for _, child in ipairs(handle:GetChildren()) do
-        if child:IsA("SpecialMesh") or child:IsA("Decal") or child:IsA("Texture") then
-            child.Parent = nil -- Удаляем старый меш
-        end
-    end
-
-    -- Ищем модель скина в репозитории игры
-    local sourceModel = getGameWeaponModel(skinName)
-    if sourceModel then
-        local clone = sourceModel:Clone()
-        clone.Name = "CustomVisualSkin"
-
-        if clone:IsA("Model") then
-            local primary = clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart", true)
-            if primary then
-                for _, part in ipairs(clone:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                        part.Massless = true
-                    end
-                end
-                
-                -- Привариваем к Handle
-                local weld = Instance.new("WeldConstraint")
-                weld.Part0 = handle
-                weld.Part1 = primary
-                weld.Parent = primary
-                
-                clone:Parent(handle)
-                print("[✓ SUCCESS] Вшита модель:", skinName, "в", toolObj.Name)
-            end
-        elseif clone:IsA("BasePart") then
-            clone.CanCollide = false
-            clone.Massless = true
-            
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = handle
-            weld.Part1 = clone
-            weld.Parent = clone
-            
-            clone.Parent = handle
-            print("[✓ SUCCESS] Вшит Part:", skinName, "в", toolObj.Name)
-        end
-    else
-        print("[WARN] Модель", skinName, "не найдена в ReplicatedStorage игры!")
     end
 end
 
--- Проверка рук и Backpack
-local function scanAndApply()
+if #foundModels > 0 then
+    print(string.format("Найдено совпадений: %d", #foundModels))
+    for i, item in ipairs(foundModels) do
+        print(string.format(" [%d] %-20s | Class: %-10s | Path: %s", i, item.Name, item.Class, item.Path))
+    end
+else
+    print("[WARN] В ReplicatedStorage не найдено ни одной модели по ключевым словам!")
+end
+
+-- 2. ПРОВЕРЯЕМ ТЕКУЩИЙ MESH В РУКАХ И ЕГО СВОЙСТВА
+local function inspectCurrentWeapon()
+    print("\n>>> [2] Проверка оружия в Backpack и Character...")
     local char = LocalPlayer.Character
-    if not char then return end
-
     local backpack = LocalPlayer:FindFirstChild("Backpack")
-    local targets = {backpack, char}
 
-    for _, container in ipairs(targets) do
+    local containers = {["Backpack"] = backpack, ["Character"] = char}
+
+    for cName, container in pairs(containers) do
         if container then
-            for _, item in ipairs(container:GetChildren()) do
-                if item:IsA("Tool") then
-                    local name = item.Name:lower()
-                    if name:find("knife") or item:FindFirstChild("Knife") then
-                        attachFakeSkin(item, "Icebreaker")
-                    elseif name:find("gun") or item:FindFirstChild("Gun") then
-                        attachFakeSkin(item, "Harvester")
+            for _, tool in ipairs(container:GetChildren()) do
+                if tool:IsA("Tool") then
+                    print(string.format("\n[TOOL FOUND] Контейнер: %s | Имя: %s", cName, tool.Name))
+                    
+                    for _, desc in ipairs(tool:GetDescendants()) do
+                        if desc:IsA("SpecialMesh") or desc:IsA("DataModelMesh") then
+                            print("   └─ SpecialMesh:")
+                            print("      ├─ MeshId:", desc.MeshId)
+                            print("      ├─ TextureId:", desc.TextureId)
+                            print("      └─ Scale:", tostring(desc.Scale))
+                        elseif desc:IsA("MeshPart") then
+                            print("   └─ MeshPart:")
+                            print("      ├─ MeshId:", desc.MeshId)
+                            print("      └─ TextureID:", desc.TextureID)
+                        end
                     end
                 end
             end
@@ -98,9 +66,16 @@ local function scanAndApply()
     end
 end
 
--- Запуск цикла проверки
-task.spawn(function()
-    while task.wait(0.3) do
-        pcall(scanAndApply)
-    end
-end)
+inspectCurrentWeapon()
+
+-- 3. ПОПЫТКА БЕЗОПАСНОЙ ПОДМЕНЫ С ЛОГИРОВАНИЕМ
+print("\n>>> [3] Проверка заблокированных ID...")
+local testMesh = Instance.new("SpecialMesh")
+testMesh.MeshId = "rbxassetid://4738598711"
+
+print("Тестовый MeshId установлен:", testMesh.MeshId)
+if testMesh.MeshId == "" then
+    print("[X] ОШИБКА: Roblox заблокировал этот MeshId (пустая строка)!")
+else
+    print("[✓] MeshId принят движком, но если модели нет — ID не является raw-мешем.")
+end
