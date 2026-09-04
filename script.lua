@@ -3,83 +3,54 @@ local InsertService = game:GetService("InsertService")
 
 local LocalPlayer = Players.LocalPlayer
 
-print("=== [REAL WORKING ASSET SKIN CHANGER] ===")
+print("=== [MM2 SMART SKIN CHANGER] ===")
 
--- Готовые рабочие Asset ID 3D-моделей ножей и пестов
-local SKINS_DATA = {
+-- Настройки скинов
+local SKINS = {
     Knife = {
-        AssetId = 4738598711, -- Icebreaker (Model Asset ID)
-        FallbackMesh = "rbxassetid://4738598711",
-        TextureId = "rbxassetid://4738598920"
+        Name = "Icebreaker",
+        MeshId = "rbxassetid://4738598711",
+        TextureId = "rbxassetid://4738598920",
+        Scale = Vector3.new(1, 1, 1)
     },
     Gun = {
-        AssetId = 7800847534, -- Harvester
-        FallbackMesh = "rbxassetid://7800847534",
-        TextureId = "rbxassetid://7800847683"
+        Name = "Harvester",
+        MeshId = "rbxassetid://7800847534",
+        TextureId = "rbxassetid://7800847683",
+        Scale = Vector3.new(1, 1, 1)
     }
 }
 
-local function forceApplyVisual(toolObj, skinConfig)
-    if not toolObj or not toolObj:IsA("Tool") then return end
+local function applySkinToTool(tool, skinData)
+    if not tool or not tool:IsA("Tool") then return end
     
-    local handle = toolObj:FindFirstChild("Handle") or toolObj:FindFirstChildWhichIsA("BasePart", true)
+    local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart", true)
     if not handle then return end
 
-    -- Защита от дублирования
-    if handle:FindFirstChild("CustomVisualSkinApplied") then return end
-
-    -- Попытка 1: Пробуем загрузить 3D-модель через InsertService
-    local loadedModel = nil
-    pcall(function()
-        loadedModel = InsertService:LoadAsset(skinConfig.AssetId)
-    end)
-
-    if loadedModel then
-        local meshPart = loadedModel:FindFirstChildWhichIsA("MeshPart", true) or loadedModel:FindFirstChildWhichIsA("BasePart", true)
-        if meshPart then
-            handle.Transparent = 1
-            for _, child in ipairs(handle:GetChildren()) do
-                if child:IsA("SpecialMesh") or child:IsA("Decal") then
-                    child:Destroy()
-                end
-            end
-
-            local newPart = meshPart:Clone()
-            newPart.Name = "CustomVisualSkinApplied"
-            newPart.CFrame = handle.CFrame
-            newPart.CanCollide = false
-            newPart.Anchored = false
-            newPart.Parent = handle
-
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = handle
-            weld.Part1 = newPart
-            weld.Parent = newPart
-
-            print("[✓ SUCCESS] Загружена и вшита полноценная 3D-модель для", toolObj.Name)
-            return
-        end
+    -- Меняем иконку в инвентаре
+    if skinData.TextureId then
+        tool.TextureId = skinData.TextureId
     end
 
-    -- Попытка 2: Если InsertService заблокирован сервером, меняем текстуру и подменяем Mesh напрямую
-    print("[INFO] Используем прямой метод подмены Mesh...")
+    -- Ищем или создаем SpecialMesh
     local mesh = handle:FindFirstChildOfClass("SpecialMesh")
     if not mesh then
         mesh = Instance.new("SpecialMesh")
-        mesh.Name = "CustomVisualSkinApplied"
+        mesh.Name = "SkinMesh"
         mesh.Parent = handle
-    else
-        mesh.Name = "CustomVisualSkinApplied"
     end
 
-    mesh.MeshId = skinConfig.FallbackMesh
-    mesh.TextureId = skinConfig.TextureId
-    toolObj.TextureId = skinConfig.TextureId
-    
-    print("[✓ SUCCESS] Обновлен MeshId и TextureId для", toolObj.Name)
+    -- Принудительно ставим MeshId и TextureId
+    if mesh.MeshId ~= skinData.MeshId then
+        mesh.MeshType = Enum.MeshType.FileMesh
+        mesh.MeshId = skinData.MeshId
+        mesh.TextureId = skinData.TextureId or ""
+        mesh.Scale = skinData.Scale
+        print(string.format("[✓ SUCCESS] Скин %s успешно применен к %s!", skinData.Name, tool.Name))
+    end
 end
 
-local function scanInventory()
+local function scanAndApply()
     local char = LocalPlayer.Character
     local backpack = LocalPlayer:FindFirstChild("Backpack")
 
@@ -89,10 +60,10 @@ local function scanInventory()
             for _, item in ipairs(container:GetChildren()) do
                 if item:IsA("Tool") then
                     local name = item.Name:lower()
-                    if name:find("knife") or item:FindFirstChild("Knife") then
-                        forceApplyVisual(item, SKINS_DATA.Knife)
-                    elseif name:find("gun") or item:FindFirstChild("Gun") then
-                        forceApplyVisual(item, SKINS_DATA.Gun)
+                    if name:find("knife") or item:FindFirstChild("Knife") or name == "defaultknife" then
+                        applySkinToTool(item, SKINS.Knife)
+                    elseif name:find("gun") or item:FindFirstChild("Gun") or name == "defaultgun" then
+                        applySkinToTool(item, SKINS.Gun)
                     end
                 end
             end
@@ -100,18 +71,19 @@ local function scanInventory()
     end
 end
 
--- Авто-отслеживание при взятии оружия в руки
+-- Автоматическое отслеживание взятия в руки
 if LocalPlayer.Character then
     LocalPlayer.Character.ChildAdded:Connect(function(child)
         if child:IsA("Tool") then
-            task.wait(0.1)
-            scanInventory()
+            task.wait(0.05)
+            scanAndApply()
         end
     end)
 end
 
+-- Фоновый цикл проверки
 task.spawn(function()
-    while task.wait(0.5) do
-        pcall(scanInventory)
+    while task.wait(0.3) do
+        pcall(scanAndApply)
     end
 end)
